@@ -5,6 +5,12 @@ work/
 *.xlsx
 *.json
 !config.example.json
+!demo_config.json
+
+# 예제용 가짜 데이터는 올린다 (실제 환자 기록 아님)
+!demo_data/
+!demo_data/visit_wide.csv
+!demo_data/cohort.csv
 *.tiff
 *.png
 *.docx

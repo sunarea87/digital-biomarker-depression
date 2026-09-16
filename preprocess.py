@@ -42,8 +42,10 @@ def load_subjects(xlsx: str) -> pd.DataFrame:
 
     out = pd.DataFrame()
     out["pid"] = df[pick("대상자번호", "subject_id")].astype(str).str.strip()
-    out["v1_date"] = pd.to_datetime(df[pick("V1_방문일", "방문일")], errors="coerce")
-    out["v4_date"] = pd.to_datetime(df[pick("V4_방문일", "F/U 방문일")], errors="coerce")
+    out["v1_date"] = pd.to_datetime(df[pick("V1날짜", "V1_방문일", "방문일")],
+                                    errors="coerce")
+    out["v4_date"] = pd.to_datetime(df[pick("V4 날짜", "V4날짜", "V4_방문일")],
+                                    errors="coerce")
     out["hamd_v1"] = pd.to_numeric(df[pick("HamD점수", "Baseline_HAMD_total")],
                                    errors="coerce")
     out["hamd_v4"] = pd.to_numeric(df[pick("V4_HAMD점수", "F/U_HAMD_total")],
