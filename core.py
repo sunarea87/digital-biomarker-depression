@@ -132,11 +132,21 @@ def read_sleep_days(raw_root: str, pid: str, start, end) -> dict:
 
 
 def read_hrv_days(raw_root: str, pid: str, start, end) -> dict:
-    """일별 심박변이도 요약을 모은다."""
+    """일별 심박변이도를 모은다.
+
+    Fitbit 은 심박변이도를 두 파일에 나눠 내보낸다.
+      Daily ... Summary  하루 한 줄. rmssd, nremhr, entropy
+      ... Details        5분 간격. low_frequency, high_frequency
+    저주파와 고주파는 Details 에만 있으므로 하루 단위로 평균 내어 합친다.
+    """
     acc = {}
     for base in _export_dirs(raw_root, pid, "Heart Rate Variability"):
         for name in os.listdir(base):
-            if not name.startswith("Daily Heart Rate Variability Summary"):
+            if not name.endswith(".csv"):
+                continue
+            is_summary = name.startswith("Daily Heart Rate Variability Summary")
+            is_detail = name.startswith("Heart Rate Variability Details")
+            if not (is_summary or is_detail):
                 continue
             try:
                 df = pd.read_csv(os.path.join(base, name))
@@ -145,18 +155,30 @@ def read_hrv_days(raw_root: str, pid: str, start, end) -> dict:
             if df.empty or "timestamp" not in df.columns:
                 continue
             df["_d"] = pd.to_datetime(df["timestamp"], errors="coerce").dt.date
-            ren = {"rmssd": "HRV_rmssd", "nremhr": "HRV_nremhr",
-                   "entropy": "HRV_entropy",
-                   "low_frequency": "HRV_low_frequency",
-                   "high_frequency": "HRV_high_frequency"}
-            for _, r in df.iterrows():
-                d = r["_d"]
-                if d is None or not (start.date() <= d <= end.date()):
+            df = df[df["_d"].between(start.date(), end.date())]
+            if df.empty:
+                continue
+            if is_summary:
+                ren = {"rmssd": "HRV_rmssd", "nremhr": "HRV_nremhr",
+                       "entropy": "HRV_entropy"}
+                for _, r in df.iterrows():
+                    rec = acc.setdefault(r["_d"], {})
+                    for src, dst in ren.items():
+                        if src in df.columns and pd.notna(r[src]):
+                            rec[dst] = float(r[src])
+            else:
+                # 5분 간격 기록을 하루 평균으로 접는다
+                ren = {"low_frequency": "HRV_low_frequency",
+                       "high_frequency": "HRV_high_frequency"}
+                cols = [c for c in ren if c in df.columns]
+                if not cols:
                     continue
-                rec = acc.setdefault(d, {})
-                for src, dst in ren.items():
-                    if src in df.columns and pd.notna(r[src]):
-                        rec[dst] = float(r[src])
+                for d, g in df.groupby("_d"):
+                    rec = acc.setdefault(d, {})
+                    for src in cols:
+                        v = pd.to_numeric(g[src], errors="coerce").dropna()
+                        if len(v):
+                            rec[ren[src]] = float(v.mean())
     return acc
 
 
