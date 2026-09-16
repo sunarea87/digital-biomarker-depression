@@ -1,0 +1,22 @@
+# 데이터는 저장소에 올리지 않는다
+config.json
+work/
+*.csv
+*.xlsx
+*.json
+!config.example.json
+*.tiff
+*.png
+*.docx
+*.pptx
+
+# 파이썬
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# OS
+Thumbs.db
+.DS_Store
