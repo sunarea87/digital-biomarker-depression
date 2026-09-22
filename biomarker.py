@@ -1,17 +1,71 @@
 # -*- coding: utf-8 -*-
-"""공통 함수 모음.
+"""디지털 바이오마커 분석에 쓰는 함수를 전부 모아 둔 곳.
 
-preprocess.py / train.py / evaluate.py 가 필요한 모든 기능을 여기서 가져다 쓴다.
-데이터 파일은 저장소에 포함되지 않으며, 경로는 config.json 또는 환경변수로 준다.
+이 파일 하나만 import 하면 전처리부터 그림까지 다 됩니다.
+step1_preprocess.py / step2_analyze.py / step3_figures.py 가 여기서 함수를 가져다 씁니다.
+직접 실행하지 않습니다.
 
-구성
-  1. 설정과 상수
-  2. 원자료 파싱      (Fitbit JSON/CSV -> 일 단위 표)
-  3. 특징 생성        (방문 요약, 궤적 요약, 직교 다항 기저)
-  4. 모형과 교차검증
-  5. 지표 계산
-  6. 해석 (SHAP)
-  7. 그림
+--------------------------------------------------------------------------
+찾아보기 (무엇을 하고 싶을 때 어느 함수를 보면 되는지)
+--------------------------------------------------------------------------
+[1] 설정과 상수
+    F16                     분석에 쓰는 지표 16개 이름
+    VISITS / WEEK_OF        방문 코드(v1~v4)와 주차(0/2/4/6)
+    POLY_CONTRAST           직교 다항 대비 가중치 (P0 평균, P1 기울기, P2 2차, P3 3차)
+    MIN_DAYS_PER_WINDOW     한 관찰 창에서 며칠 이상 있어야 인정할지 (3일)
+    load_config             config.json 읽기
+
+[2] 원자료 파싱 : Fitbit 내보내기 폴더 -> 하루 단위 표
+    read_sleep_days         수면 JSON
+    read_hrv_days           심박변이 CSV (★ 두 파일을 같이 읽어야 함. 아래 주의사항 참고)
+    read_activity_days      활동 JSON
+    visit_windows           방문별 7일 관찰 창 계산
+    daily_table             한 대상자의 네 창을 하루 단위 표로
+    window_coverage         창별로 며칠 확보되었는지 세기
+    select_cohort           품질 기준을 넘은 대상자만 남기기
+
+[3] 특징 생성 : 하루 단위 표 -> 모델 입력
+    visit_summary           창 단위 평균 (1행 = 1대상자, 열 = 지표__방문)
+    trajectory_summary      지표별 기울기/총변화/최대변화
+    polynomial_basis        직교 다항 계수 (P0, P1, ...)
+    representation          표현 방식을 이름으로 고르기 (raw2 / raw4 / traj / poly)
+
+[4] 모형과 교차검증
+    make_models             LR / RF / XGB / SVM 파이프라인 (대치·스케일 포함)
+    cross_val_predict_patient   교차검증 out-of-fold 예측 확률
+    fold_aucs               겹마다의 AUC
+    compare_representations 표현 방식끼리 같은 조건으로 비교
+    record_vs_subject       방문 단위와 대상자 단위 분할의 성능 차이 측정
+
+[5] 지표 계산
+    full_metrics            정확도/민감도/특이도/PPV/NPV/F1/AUC 한 번에
+    classification_metrics  위의 축약판
+    bootstrap_ci            부트스트랩 신뢰구간
+
+[6] 해석
+    shap_importance         SHAP 기여도 (평가 겹에서만 모음)
+    KOR                     지표 영문 이름 -> 한글 이름
+
+[7] 그림
+    use_korean_font         한글 폰트 등록
+    save_figure             TIFF(600dpi) + PNG 동시 저장
+    plot_roc / plot_importance
+
+--------------------------------------------------------------------------
+꼭 알아야 할 주의사항 세 가지
+--------------------------------------------------------------------------
+1) 심박변이 저주파수(LF)와 고주파수(HF)는 'Daily Heart Rate Variability Summary'
+   파일에 없습니다. 'Heart Rate Variability Details' 파일에 5분 간격으로 들어 있어
+   하루 평균으로 접어서 써야 합니다. 이것을 빠뜨리면 16지표 중 2개가 통째로 빕니다.
+   -> read_hrv_days 가 두 파일을 모두 읽도록 되어 있습니다.
+
+2) 6주(v4) 관찰 창은 마지막 방문일에서 거꾸로 셉니다. 실제 방문 간격이 계획된
+   42일에서 벗어나는 대상자가 많아, 앞에서부터 세면 임상 평가 시점과 어긋납니다.
+   -> visit_windows 를 보세요.
+
+3) 결측 대치와 스케일링은 반드시 교차검증 '분할 안에서' 해야 합니다.
+   전체 자료로 먼저 대치하면 평가 자료 정보가 학습에 새어 성능이 높게 나옵니다.
+   -> make_models 가 대치와 스케일을 파이프라인 안에 넣어 두었습니다.
 """
 from __future__ import annotations
 
@@ -80,8 +134,6 @@ def load_config(path: str = "config.json") -> dict:
                      ("work_dir", "DBD_WORK_DIR")]:
         if os.environ.get(env):
             cfg[key] = os.environ[env]
-    cfg.setdefault("work_dir", "./work")
-    os.makedirs(cfg["work_dir"], exist_ok=True)
     return cfg
 
 
@@ -424,7 +476,7 @@ def make_models(seed: int = SEED) -> dict:
 
 def cross_val_predict_patient(X, y, model, seed=SEED, n_splits=N_SPLITS,
                               n_repeats=N_REPEATS, groups=None):
-    """환자 단위 교차검증으로 out-of-fold 예측을 만든다.
+    """대상자 단위 교차검증으로 out-of-fold 예측을 만든다.
 
     groups 를 주면 같은 사람의 여러 행이 학습과 평가로 갈라지지 않는다.
     한 사람이 한 행이면 groups 없이도 자동으로 보장된다.
@@ -479,7 +531,7 @@ def compare_representations(reps: dict, y, models=None, seeds=(42, 7, 101, 2024)
 
 
 def record_vs_subject(X, y, groups, model, seed=SEED, n_repeats=20):
-    """같은 자료를 방문 단위와 환자 단위로 나눠 평가해 부풀림을 잰다.
+    """같은 자료를 방문 단위와 대상자 단위로 나눠 평가해 차이를 잰다.
 
     같은 사람의 여러 방문을 독립 표본처럼 다루면 성능이 과대추정된다.
     그 크기를 직접 재는 함수다.
@@ -505,7 +557,7 @@ def record_vs_subject(X, y, groups, model, seed=SEED, n_repeats=20):
             vals.append(100 * roc_auc_score(y[ok], oof[ok] / cnt[ok]))
         res[mode] = (float(np.mean(vals)), float(np.std(vals)))
     return {"방문 단위": res["record"][0], "방문 단위 SD": res["record"][1],
-            "환자 단위": res["subject"][0], "환자 단위 SD": res["subject"][1],
+            "대상자 단위": res["subject"][0], "대상자 단위 SD": res["subject"][1],
             "부풀림": res["record"][0] - res["subject"][0]}
 
 
@@ -523,6 +575,51 @@ def classification_metrics(y, p, threshold=0.5) -> dict:
             "Spec": 100 * tn / max(tn + fp, 1),
             "F1": 100 * f1_score(y, pred, zero_division=0),
             "AUC": 100 * roc_auc_score(y, p)}
+
+
+def full_metrics(y, p, threshold=0.5) -> dict:
+    """보고서에 넣는 일곱 가지 지표를 한 번에 낸다.
+
+    민감도(sensitivity)와 재현율(recall)은 같은 값이라 한 번만 낸다.
+    PPV 는 양성으로 예측한 것 중 실제 양성 비율, NPV 는 그 반대다.
+    """
+    from sklearn.metrics import confusion_matrix, roc_auc_score
+    y = np.asarray(y, int)
+    pred = (np.asarray(p) >= threshold).astype(int)
+    tn, fp, fn, tp = confusion_matrix(y, pred, labels=[0, 1]).ravel()
+    sen = tp / max(tp + fn, 1)
+    spec = tn / max(tn + fp, 1)
+    ppv = tp / max(tp + fp, 1)
+    npv = tn / max(tn + fn, 1)
+    f1 = 2 * ppv * sen / max(ppv + sen, 1e-9)
+    return {"ACC": 100 * (tp + tn) / len(y), "Sen": 100 * sen, "Spec": 100 * spec,
+            "PPV": 100 * ppv, "NPV": 100 * npv, "F1": 100 * f1,
+            "AUC": 100 * roc_auc_score(y, p)}
+
+
+def oof_predict(X, y, model, splitter="record", groups=None, n_repeats=10, seed=SEED):
+    """반복 교차검증으로 out-of-fold 예측 확률을 모아 평균한다.
+
+    splitter="record"  표본을 그냥 무작위로 나눈다 (방문 단위)
+    splitter="subject" groups 로 준 대상자를 통째로 한쪽에만 넣는다 (대상자 단위)
+    """
+    from sklearn.model_selection import StratifiedKFold, StratifiedGroupKFold
+    X = np.asarray(X, float)
+    y = np.asarray(y, int)
+    acc = np.zeros(len(y))
+    cnt = np.zeros(len(y))
+    for r in range(n_repeats):
+        s = seed + r
+        sp = (StratifiedKFold(N_SPLITS, shuffle=True, random_state=s).split(X, y)
+              if splitter == "record" else
+              StratifiedGroupKFold(N_SPLITS, shuffle=True, random_state=s)
+              .split(X, y, groups))
+        for tr, te in sp:
+            m = make_models(s)[model].fit(X[tr], y[tr])
+            acc[te] += m.predict_proba(X[te])[:, 1]
+            cnt[te] += 1
+    ok = cnt > 0
+    return y[ok], acc[ok] / cnt[ok]
 
 
 def bootstrap_ci(y, p, fn, n_boot=1000, seed=0):
@@ -555,6 +652,52 @@ def metrics_with_ci(y, p, n_boot=1000) -> dict:
 # =====================================================================
 # 6. 해석
 # =====================================================================
+
+#: 지표 영문 이름을 보고서에 쓰는 한글 이름으로 바꾼다.
+KOR = {
+    "SQ_deep_minutes": "깊은 수면 시간", "SQ_wake_minutes": "수면 중 각성 시간",
+    "SQ_light_minutes": "얕은 수면 시간", "SQ_rem_minutes": "렘 수면 시간",
+    "SQ_efficiency": "수면 효율", "SQ_time_in_bed": "침대에 머무른 총시간",
+    "HRV_low_frequency": "저주파수(LF)", "HRV_high_frequency": "고주파수(HF)",
+    "HRV_entropy": "엔트로피", "HRV_nremhr": "비렘수면 심박수", "HRV_rmssd": "RMSSD",
+    "ACT_distances_weekday": "평일 이동 거리", "ACT_distances_weekend": "주말 이동 거리",
+    "ACT_calories_weekday": "평일 소모 칼로리", "ACT_calories_weekend": "주말 소모 칼로리",
+    "ACT_total_active_minutes": "총 활동 시간",
+}
+
+#: 판별 표적 세 가지. (이름, 라벨 열, 양성 절단점)
+TARGETS = [("중증도", "HAMD_v4", 14), ("자살사고", "SUI_v4", 1), ("불안", "BAI_v4", 16)]
+
+
+def load_cohort(data_dir: str):
+    """코호트 폴더에서 방문 요약과 라벨을 함께 읽는다.
+
+    data_dir 예: "../3.데이터/정형_146명"
+    """
+    w = pd.read_csv(os.path.join(data_dir, "visit_wide.csv"), index_col=0,
+                    encoding="utf-8-sig")
+    w.index = w.index.astype(str)
+    L = pd.read_csv(os.path.join(data_dir, "labels.csv"), index_col=0,
+                    encoding="utf-8-sig")
+    L.index = L.index.astype(str)
+    return w, L.reindex(w.index)
+
+
+def to_visit_rows(wide: pd.DataFrame, visits=("v1", "v4")) -> pd.DataFrame:
+    """1대상자 1행짜리 표를 1방문 1행짜리 표로 편다 (정형 분석용).
+
+    같은 대상자가 두 줄을 갖게 되므로, 학습·평가를 나눌 때 pid 를 그룹으로 줘야
+    같은 사람이 양쪽에 들어가지 않는다.
+    """
+    out = []
+    for v in visits:
+        s = wide[[f"{f}__{v}" for f in F16]].copy()
+        s.columns = F16
+        s["pid"] = wide.index
+        s["visit"] = v
+        out.append(s)
+    return pd.concat(out, ignore_index=True)
+
 
 def shap_importance(X, y, feature_names, model="RF", seed=SEED, n_repeats=3):
     """평가 겹에서만 SHAP 값을 모아 평균한다.

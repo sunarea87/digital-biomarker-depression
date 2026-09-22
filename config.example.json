@@ -1,5 +1,5 @@
 {
-  "raw_root": "D:/원본데이터",
-  "subject_xlsx": "D:/피험자 DATA.xlsx",
-  "work_dir": "./work"
+  "raw_root": "원본 Fitbit 폴더 경로. 예: D:/원본데이터",
+  "subject_xlsx": "대상자 명부 엑셀 경로. 예: D:/대상자 DATA.xlsx",
+  "out_dir": "가공된 표를 둘 폴더. 예: ./work"
 }
