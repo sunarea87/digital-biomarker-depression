@@ -13,6 +13,9 @@
          비정형 0·2·4·6주 네 창 모두 요구 -> 궤적을 쓸 수 있습니다 (141명)
 
 무엇이 만들어지나요 (3.데이터 아래)
+    폴더 이름 끝의 숫자는 그때 실제로 남은 인원수입니다. 대상자가 늘면 숫자가 바뀝니다.
+    2·3단계는 앞글자(정형_, 비정형_)로 폴더를 찾으므로 이름이 바뀌어도 그대로 돕니다.
+
     비정형_141명/daily_long.csv    1행 = 1대상자 x 1날짜. 모든 계산의 원재료
     비정형_141명/coverage.csv      창별 확보 일수. 코호트 선정 근거
     비정형_141명/visit_wide.csv    1행 = 1대상자, 열 = 지표__방문
@@ -35,8 +38,8 @@ import biomarker as bm
 HERE = os.path.dirname(os.path.abspath(__file__))
 CFG = bm.load_config(os.path.join(HERE, "config.json"))
 OUT = os.path.abspath(os.path.join(HERE, CFG["out_dir"]))
-DIR_LONG = os.path.join(OUT, "비정형_141명")
-DIR_TWO = os.path.join(OUT, "정형_146명")
+# 저장 폴더 이름은 아래 main() 에서 실제 인원수를 세어 붙입니다.
+# (예: 정형_146명, 비정형_141명). 대상자가 늘면 새 이름의 폴더가 생깁니다.
 
 
 # ---------------------------------------------------------------------
@@ -107,7 +110,6 @@ def save_cohort(daily, subs, pids, folder, visits):
 
 
 def main():
-    os.makedirs(DIR_LONG, exist_ok=True)
     xlsx = os.path.abspath(os.path.join(HERE, CFG["subject_xlsx"]))
     subs = load_subjects(xlsx)
     print(f"명부 등록 {len(subs)}명")
@@ -124,21 +126,26 @@ def main():
         if i % 20 == 0:
             print(f"    {i}/{len(subs)} 처리 중", flush=True)
     daily = pd.concat(frames, ignore_index=True)
-    daily.to_csv(os.path.join(DIR_LONG, "daily_long.csv"), index=False,
-                 encoding="utf-8-sig")
     print(f"웨어러블 일 자료 확인 {daily['pid'].nunique()}명 ({len(daily)}행)")
 
     # ---- 2) 창별 확보 일수
     cov = bm.window_coverage(daily)
-    cov.to_csv(os.path.join(DIR_LONG, "coverage.csv"), index=False,
-               encoding="utf-8-sig")
     piv = cov.pivot(index="pid", columns="visit", values="min_modality").fillna(0)
 
     # ---- 3) 두 코호트로 나누기
     ok2 = sorted(piv.index[(piv[["v1", "v4"]] >= bm.MIN_DAYS_PER_WINDOW).all(axis=1)])
     ok4 = sorted(piv.index[(piv[bm.VISITS] >= bm.MIN_DAYS_PER_WINDOW).all(axis=1)])
-    w2, l2 = save_cohort(daily, subs, ok2, DIR_TWO, ("v1", "v4"))
-    w4, l4 = save_cohort(daily, subs, ok4, DIR_LONG, tuple(bm.VISITS))
+
+    # 폴더 이름에 실제 인원수를 붙입니다. 2·3단계는 앞글자로 찾으므로 고칠 것이 없습니다.
+    dir_two = os.path.join(OUT, f"정형_{len(ok2)}명")
+    dir_long = os.path.join(OUT, f"비정형_{len(ok4)}명")
+    os.makedirs(dir_long, exist_ok=True)
+    daily.to_csv(os.path.join(dir_long, "daily_long.csv"), index=False,
+                 encoding="utf-8-sig")
+    cov.to_csv(os.path.join(dir_long, "coverage.csv"), index=False,
+               encoding="utf-8-sig")
+    w2, l2 = save_cohort(daily, subs, ok2, dir_two, ("v1", "v4"))
+    w4, l4 = save_cohort(daily, subs, ok4, dir_long, tuple(bm.VISITS))
 
     print()
     print("코호트 확정")

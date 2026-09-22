@@ -3,75 +3,127 @@
 손목 착용형 웨어러블(Fitbit)에서 나온 수면과 심박변이와 활동량 자료로
 우울장애 환자의 6주 뒤 상태를 판별하고, 어떤 지표가 얼마나 기여했는지를 수치로 내는 코드임.
 
-식약처 과제 24202미래기201, 가천대학교 의공학교실, IRB GCIRB2024-093.
-
-읽는 목적별 바로가기임.
-
-| 알고 싶은 것 | 볼 곳 |
+| Topic | Section |
 |---|---|
-| 바이오마커를 어떻게 가공하는가 | 3장 |
-| 중요도를 재는 코드가 무엇인가 | 4장 |
-| 그 결과를 어떻게 읽는가 | 5장 |
-| 올려둔 샘플 데이터가 무엇인가 | 6장 |
-| 당장 돌려보고 싶다 | 1장 |
+| Quick start | 1장 |
+| Repository layout | 2장 |
+| Biomarker processing | 3장 |
+| Feature importance | 4장 |
+| Interpreting results | 5장 |
+| Sample data | 6장 |
+| Study design | 7장 |
+| Pitfalls | 8장 |
+| Configuration and errors | 9장 |
+| Data privacy | 10장 |
+
+문의는 sunarea87@gachon.ac.kr 로 주시기 바랍니다.
 
 ---
 
 ## 1. 빠른 시작
 
-샘플 데이터로 5분 안에 전체 흐름을 확인할 수 있음.
+[ 1-1. 준비 ]
+
+그대로 붙여넣으면 됨. 파이썬 3.9 이상이 필요함.
 
 ```
+git clone https://github.com/sunarea87/digital-biomarker-depression.git
+cd digital-biomarker-depression
 pip install -r requirements.txt
-
-python - <<'EOF'
-import biomarker as bm
-w, l = bm.load_cohort("샘플데이터/비정형_120명")
-idx = l.index[l["HAMD_v4"].notna()]
-y = (l.loc[idx, "HAMD_v4"] >= 14).astype(int).values
-X = bm.representation(w, "poly").loc[idx]
-yy, pp = bm.oof_predict(X.values, y, "RF", "record", n_repeats=3)
-print(bm.full_metrics(yy, pp))
-EOF
+cp config.example.json config.json
 ```
 
-전체 실험을 돌리려면 `config.json` 의 `out_dir` 을 샘플 폴더로 바꾼 뒤 아래를 실행함.
+`config.json` 을 열어 `out_dir` 을 `./샘플데이터` 로 적으면 샘플로 돌아감.
+실제 자료를 쓸 때는 가공된 표가 있는 폴더 경로를 적으면 됨.
+
+[ 1-2. 1분 확인 ]
+
+설치가 제대로 됐는지 보는 가장 짧은 코드임.
 
 ```
-python step2_analyze.py      실험 전부, 결과표 CSV 생성
-python step3_figures.py      결과표로 그림 생성
+python -c "import biomarker as bm, os; w,l = bm.load_cohort(bm.find_cohort_dir(os.path.abspath('./샘플데이터'),'비정형_')); print(w.shape, l.shape)"
 ```
 
-`step1_preprocess.py` 는 Fitbit 원본 폴더를 읽는 단계임.
-원본은 개인정보라 저장소에 없음. 새 대상자가 추가될 때만 필요함.
+`(120, 64) (120, 9)` 가 나오면 정상임.
+
+[ 1-3. 성능 재기 ]
+
+교차검증으로 판별 성능을 냄. 모형을 남기지는 않음.
+
+```
+python step2_analyze.py            네 가지 실험 전부. 샘플 기준 30분 안팎
+python step2_analyze.py 정형        방문 단위 실험만. 10분 안팎
+python step2_analyze.py 비정형      대상자 단위 궤적 실험만
+python step2_analyze.py 서브그룹
+python step2_analyze.py 불안
+python step3_figures.py            위 결과표로 그림 생성
+```
+
+결과는 `결과/` 폴더에 CSV 로 쌓임. 보고할 성능은 `결과/full_metrics.csv` 임.
+
+[ 1-4. 학습과 예측 ]
+
+새 대상자에게 실제로 써 보려면 이 단계임. `step2` 와 달리 모형을 파일로 남김.
+
+```
+python step4_predict.py 학습                        모형/ 아래에 표현형 세 개 저장
+python step4_predict.py 예측 샘플데이터/비정형_120명    확률과 판정을 매김
+```
+
+예측 결과는 지정한 폴더에 `예측결과.csv` 로 저장됨.
+입력으로 필요한 것은 `visit_wide.csv` 하나뿐이고 임상 점수는 없어도 됨.
+
+한 줄로 확인하려면 아래와 같음.
+
+```
+python step4_predict.py 학습 && python step4_predict.py 예측 샘플데이터/비정형_120명
+```
+
+[ 1-5. 원본 자료가 있을 때 ]
+
+```
+python step1_preprocess.py         Fitbit 내보내기 폴더 -> 분석용 표
+```
+
+Fitbit 원본은 개인정보라 저장소에 없음. 새 대상자가 추가될 때만 필요함.
+원본 없이 2단계부터 돌리면 됨.
 
 ---
 
 ## 2. 파일 구성
 
-파이썬 파일은 네 개임. 셋은 `biomarker.py` 에서 함수를 가져다 씀.
+파이썬 파일은 다섯 개임. 넷은 `biomarker.py` 에서 함수를 가져다 씀.
 
 | 파일 | 역할 | 직접 실행 |
 |---|---|---|
 | `biomarker.py` | 함수 전부. 파싱, 특징 생성, 모형, 지표, 중요도, 그림 | 안 함 |
 | `step1_preprocess.py` | Fitbit 원자료를 분석용 표로 변환 | 원본 있을 때만 |
-| `step2_analyze.py` | 실험 전부 실행, 결과표 생성 | 함 |
+| `step2_analyze.py` | 교차검증으로 성능 측정, 결과표 생성 | 함 |
 | `step3_figures.py` | 결과표로 그림 생성 | 함 |
+| `step4_predict.py` | 모형 학습·저장, 새 대상자 예측 | 함 |
 
 `biomarker.py` 맨 위 주석에 함수 찾아보기가 들어 있음.
 
-이 저장소에 없는 것이 둘 있음.
+폴더는 실행하면 생김. 내려받은 상태에는 없음.
 
-- `결과/` 폴더. 실제 자료로 돌린 결과표와 논문용 그림이 들어 있음. 기관 내부에만 둠
-- `config.json`. 원본 자료 경로가 적혀 있음. `config.example.json` 을 복사해 쓸 것
+| 폴더 | 언제 생기는가 | 무엇이 들어가는가 |
+|---|---|---|
+| `결과/` | `step2_analyze.py` 를 돌릴 때 | 결과표 CSV 10개 |
+| `결과/그림/` | `step3_figures.py` 를 돌릴 때 | 그림 17장 (TIFF 600dpi, PNG) |
+| `모형/` | `step4_predict.py 학습` 을 돌릴 때 | 표현형별 모형 `.joblib` |
 
-5장에 실린 수치는 그 `결과/` 폴더에서 가져온 참고값임. 해석 방법을 익히는 데 쓸 것.
+저장소에 담지 않은 것이 둘 있음.
+
+- 실제 코호트(146명 / 141명)로 돌린 `결과/` 의 내용물. 연구 자료라 기관 내부에만 둠
+- `config.json`. 기관 내부 경로가 적혀 있음. `config.example.json` 을 복사해 쓰면 됨
+
+5장에 옮겨 적은 수치가 그 실제 결과임. 해석 방법을 익히는 데 쓰면 됨.
 
 ---
 
 ## 3. 바이오마커를 어떻게 다루는가
 
-이 장이 이 저장소의 핵심임. 원시 신호에서 모델 입력까지 다섯 단계를 거침.
+원시 신호에서 모델 입력까지 다섯 단계를 거침.
 
 [ 3-1. 전체 흐름 ]
 
@@ -193,30 +245,43 @@ Fitbit 내보내기 폴더
 
 ## 4. 어떤 바이오마커가 얼마나 중요한지 재는 코드
 
-[ 4-1. 담당 함수 ]
+[ 4-1. 중요도를 재는 함수 ]
 
-`biomarker.shap_importance(X, y, feature_names, model, seed, n_repeats)` 하나임.
+`biomarker.shap_importance` - 바이오마커의 중요도를 재는 코드.
 
-동작은 다음과 같음.
+```
+shap_importance(X, y, feature_names, model="RF", seed=42, n_repeats=3)
+```
+
+| 인자 | 뜻 |
+|---|---|
+| `X` | 특징 행렬 |
+| `y` | 0과 1로 된 표적 |
+| `feature_names` | 열 이름. 결과표의 행 이름이 됨 |
+| `model` | `LR` `RF` `XGB` `SVM` 중 하나 |
+| `n_repeats` | 교차검증 반복 횟수. 늘리면 안정되고 느려짐 |
+
+돌려주는 값은 `특징` 과 `SHAP` 두 열을 가진 DataFrame 이고 기여도가 큰 순으로 정렬되어 있음.
+
+안에서 일어나는 일임.
 
 - 교차검증 겹마다 모형을 학습함
 - 그 겹의 평가 부분에서만 SHAP 값을 수집함
 - 절댓값을 평균해 지표별 기여도를 냄
-- 기여도가 큰 순으로 정렬한 DataFrame 을 돌려줌. 열은 `특징` 과 `SHAP` 임
 
 평가 부분에서만 모으는 것이 중요함.
 학습에 쓰인 표본의 기여도를 섞으면 중요도가 낙관적으로 나옴.
 
-[ 4-2. 어디서 호출되는가 ]
+[ 4-2. 실행하면 생기는 파일 ]
 
-`step2_analyze.py` 안 두 곳임.
+`step2_analyze.py` 가 두 곳에서 위 함수를 부름. 돌리고 나면 아래 두 파일이 생김.
 
-| 위치 | 입력 | 설명 대상 모형 | 출력 파일 |
+| 생기는 파일 | 만드는 곳 | 입력 | 설명 대상 모형 |
 |---|---|---|---|
-| `run_structured` 끝부분 | 방문 단위 16지표 원값 | XGB | `결과/structured_shap.csv` |
-| `run_longitudinal` 끝부분 | 직교다항 P0와 P1 (32성분) | RF | `결과/longitudinal_shap.csv` |
+| `결과/structured_shap.csv` | `run_structured` 끝부분 | 방문 단위 16지표 원값 | XGB |
+| `결과/longitudinal_shap.csv` | `run_longitudinal` 끝부분 | 직교다항 P0와 P1 (32성분) | RF |
 
-그림으로 보려면 `step3_figures.py` 를 돌림.
+그림으로 보려면 `step3_figures.py` 를 돌림. `결과/그림/` 에 아래가 생김.
 
 | 그림 | 내용 |
 |---|---|
@@ -224,7 +289,7 @@ Fitbit 내보내기 폴더
 | `s_rank_heatmap` | 세 표현형의 순위를 한 장에 비교 |
 | `l_shap_severity` / `l_shap_suicide` / `l_shap_anxiety` | 궤적 성분별 기여도 |
 
-[ 4-3. 두 출력 파일의 차이 ]
+[ 4-3. 두 파일의 차이 ]
 
 `structured_shap.csv` 는 순위를 담음. 1이 가장 중요함. 행은 지표 16개, 열은 표현형 3개임.
 `longitudinal_shap.csv` 는 SHAP 값 자체를 담음. 행은 32성분(16지표 곱하기 평균/기울기)임.
@@ -272,7 +337,8 @@ print(a.median(), b.median(), stats.mannwhitneyu(a, b))
 
 [ 5-3. 실제 자료에서 나온 순위 ]
 
-`결과/structured_shap.csv` 의 내용임. 숫자가 작을수록 기여가 큼.
+실제 코호트로 돌렸을 때 `결과/structured_shap.csv` 에 담겼던 값임.
+숫자가 작을수록 기여가 큼.
 
 | 지표 | 중증도 | 자살사고 | 불안 |
 |---|---|---|---|
@@ -302,7 +368,7 @@ print(a.median(), b.median(), stats.mannwhitneyu(a, b))
 
 [ 5-4. 궤적 성분 해석 ]
 
-`결과/longitudinal_shap.csv` 의 상위임.
+실제 코호트의 `결과/longitudinal_shap.csv` 상위임.
 
 | 표현형 | 1위 | 2위 | 3위 | 4위 |
 |---|---|---|---|---|
@@ -320,7 +386,9 @@ print(a.median(), b.median(), stats.mannwhitneyu(a, b))
 
 [ 5-5. 판별 성능 참고값 ]
 
-`결과/full_metrics.csv` 가 유일한 출처임. 문서에 옮겨 적지 말고 이 파일을 읽어 쓸 것.
+AUC 임. 실제 코호트 146명 / 141명 기준임.
+새로 돌린 뒤에는 `결과/full_metrics.csv` 가 유일한 출처임.
+문서에 숫자를 옮겨 적지 말고 그 파일을 읽어 쓸 것.
 
 | 표현형 | 정형 대상자 단위 | 비정형 궤적 | 차이 |
 |---|---|---|---|
@@ -337,8 +405,10 @@ print(a.median(), b.median(), stats.mannwhitneyu(a, b))
 
 [ 6-1. 무엇인가 ]
 
-`샘플데이터/` 안의 두 폴더임. 전부 컴퓨터가 지어낸 가짜 환자 120명임.
-실제 환자 기록은 한 줄도 들어 있지 않음.
+`샘플데이터/` 안의 두 폴더임. 가상의 대상자 120명으로 구성되어 있음.
+
+샘플 데이터는 실제 데이터의 분포를 통계적으로 모사하여 샘플링한 가상의 데이터임.
+의료 개인정보 보호를 위한 조치임.
 
 | 폴더 | 파일 | 내용 |
 |---|---|---|
@@ -360,8 +430,8 @@ print(a.median(), b.median(), stats.mannwhitneyu(a, b))
 
 [ 6-2. 어떻게 만들었는가 ]
 
-실제 코호트에서 가져온 것은 지표 16개의 평균과 표준편차 두 숫자뿐임.
-개인 값은 전혀 쓰지 않았음.
+실제 코호트에서 가져온 것은 지표 16개의 집단 평균과 표준편차뿐임.
+개인 단위 값은 사용하지 않았음.
 
 생성 규칙임.
 
@@ -401,7 +471,7 @@ print(a.median(), b.median(), stats.mannwhitneyu(a, b))
 
 샘플 데이터로 나온 숫자는 논문이나 보고서에 인용하면 안 됨.
 코드가 도는지 확인하고 해석 방법을 익히는 용도임.
-실제 결과는 5장의 표와 `결과/` 폴더에 있음.
+인용할 수 있는 실제 결과는 5장의 표임.
 
 ---
 
@@ -424,7 +494,16 @@ SMOTE 와 GridSearchCV 를 쓰지 않는 이유임.
 합성 표본이 교차검증 겹을 넘나들면 평가가 낙관적으로 흐름.
 표본이 작아 하이퍼파라미터 탐색 자체가 또 다른 과적합 경로가 됨.
 
-`step2_analyze.py` 는 이름을 주면 부분 실행됨. 정형, 비정형, 서브그룹, 불안 네 가지임.
+`step2_analyze.py` 는 이름을 주면 부분만 실행됨. 1-3 을 볼 것.
+
+`step4_predict.py` 가 저장하는 모형은 표현형마다 아래 조합으로 고정되어 있음.
+2단계의 표현 방식 비교 실험에서 가장 좋았던 조합임. `step4_predict.py` 의 `CHOICE` 에 있음.
+
+| 표현형 | 표현 방식 | 분류기 |
+|---|---|---|
+| 중증도 | `traj` | RF |
+| 자살사고 | `poly` | RF |
+| 불안 | `traj` | RF |
 
 ---
 
@@ -469,9 +548,15 @@ Summary 만 읽으면 16지표 중 2개가 통째로 빔. 실제로 한 번 빠�
 }
 ```
 
-샘플 데이터로 전체 실험을 돌리려면 `out_dir` 을 `./샘플데이터` 로 바꾸고,
-`step2_analyze.py` 안의 `DIR_TWO` 와 `DIR_LONG` 이 가리키는 폴더 이름을
-`정형_120명` 과 `비정형_120명` 으로 맞추면 됨.
+`raw_root` 와 `subject_xlsx` 는 1단계에서만 씀. 2단계부터 돌릴 것이면 비워 두어도 됨.
+
+샘플로 돌릴 때는 `out_dir` 을 `./샘플데이터` 로 적는 것 하나면 됨.
+코드는 손대지 않아도 됨.
+
+코호트 폴더 이름에는 인원수가 붙음(`정형_146명`). 대상자가 늘면 이름이 바뀜.
+`biomarker.find_cohort_dir` 이 `정형_` `비정형_` 앞글자로 폴더를 찾으므로
+이름이 바뀌어도 2·3·4단계는 그대로 돎. 같은 앞글자 폴더가 여러 개면
+가장 최근 것을 쓰고 어느 것을 골랐는지 화면에 알려 줌.
 
 명부의 방문일이 잘못 적혀 있거나 비어 있으면 원본 엑셀을 고치지 않고
 같은 폴더의 `날짜보정.csv` 에 적어 둠. 1단계가 읽어 덮어씀.
@@ -486,11 +571,25 @@ Summary 만 읽으면 16지표 중 2개가 통째로 빔. 실제로 한 번 빠�
 | 한글이 네모로 나옴 | `biomarker.use_korean_font()` 에 폰트 경로를 넣을 것 |
 | `joblib` 임시폴더 오류 | `C:/jltmp` 폴더를 만들 것 |
 | SHAP 계산이 느림 | `shap_importance` 의 `n_repeats` 를 줄일 것. 기본 3임 |
+| `'정형_' 로 시작하는 폴더가 없습니다` | `out_dir` 이 코호트 폴더의 부모를 가리켜야 함. 코호트 폴더 자체가 아님 |
+| 예측에서 `모형이 없습니다` | `python step4_predict.py 학습` 을 먼저 돌릴 것 |
+| 예측에서 `학습에 쓰인 열이 비어 있습니다` | 입력 `visit_wide.csv` 에 네 시점(v1~v4)이 다 있어야 함 |
+| `UnicodeEncodeError` (cp949) | `set PYTHONIOENCODING=utf-8` 후 실행할 것 |
 
 ---
 
 ## 10. 개인정보
 
-이 저장소에는 실제 환자 자료가 없음.
-`샘플데이터/` 는 전부 합성 자료이며 개인 식별 정보를 포함하지 않음.
-실제 분석에 쓰는 명부와 원본 웨어러블 자료는 기관 내부 저장소에만 둠. 외부 반출 금지임.
+이 저장소에는 실제 대상자 자료가 포함되어 있지 않음.
+
+`샘플데이터/` 는 실제 데이터의 분포를 통계적으로 모사하여 샘플링한 가상의 데이터임.
+의료 개인정보 보호를 위한 조치임. 개인 식별 정보는 포함되어 있지 않음.
+
+실제 분석에 쓰는 대상자 명부와 원본 웨어러블 자료는 기관 내부 저장소에만 두며 외부로 반출하지 않음.
+가공된 표에도 대상자 번호만 쓰고 이름이나 식별 정보는 넣지 않음.
+
+---
+
+## 문의
+
+sunarea87@gachon.ac.kr

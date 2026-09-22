@@ -51,8 +51,9 @@ DATA = os.path.abspath(os.path.join(HERE, CFG["out_dir"]))
 RES = os.path.join(HERE, "결과")
 os.makedirs(RES, exist_ok=True)
 
-DIR_TWO = os.path.join(DATA, "정형_146명")
-DIR_LONG = os.path.join(DATA, "비정형_141명")
+# 폴더 이름에 인원수가 붙어 있어 앞글자로 찾습니다. 대상자가 늘어도 고칠 것이 없습니다.
+DIR_TWO = bm.find_cohort_dir(DATA, "정형_")
+DIR_LONG = bm.find_cohort_dir(DATA, "비정형_")
 MODELS = ["LR", "RF", "XGB", "SVM"]
 SEEDS = (42, 7, 101, 2024)
 

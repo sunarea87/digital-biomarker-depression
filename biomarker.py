@@ -115,15 +115,17 @@ N_REPEATS = 5
 
 
 def load_config(path: str = "config.json") -> dict:
-    """데이터 경로 설정을 읽는다.
+    """데이터 경로 설정을 읽습니다.
 
-    config.json 예시::
+    config.example.json 을 config.json 으로 복사해 값을 채우면 됩니다.
 
-        {"raw_root": "D:/원본데이터",
-         "subject_xlsx": "D:/피험자 DATA.xlsx",
-         "work_dir": "./work"}
+        {"raw_root":     "원본 Fitbit 폴더 경로",
+         "subject_xlsx": "대상자 명부 엑셀 경로",
+         "out_dir":      "가공된 표를 둘 폴더"}
 
-    환경변수 DBD_RAW_ROOT / DBD_SUBJECT_XLSX / DBD_WORK_DIR 로도 줄 수 있다.
+    샘플로 돌려 볼 때는 out_dir 만 "./샘플데이터" 로 적으면 됩니다.
+    raw_root 와 subject_xlsx 는 1단계에서만 쓰므로 비워 두어도 됩니다.
+    환경변수 DBD_RAW_ROOT / DBD_SUBJECT_XLSX / DBD_OUT_DIR 로도 줄 수 있습니다.
     """
     cfg = {}
     if os.path.exists(path):
@@ -131,16 +133,15 @@ def load_config(path: str = "config.json") -> dict:
             cfg = json.load(f)
     for key, env in [("raw_root", "DBD_RAW_ROOT"),
                      ("subject_xlsx", "DBD_SUBJECT_XLSX"),
-                     ("work_dir", "DBD_WORK_DIR")]:
+                     ("out_dir", "DBD_OUT_DIR")]:
         if os.environ.get(env):
             cfg[key] = os.environ[env]
+    if "out_dir" not in cfg:
+        raise FileNotFoundError(
+            f"설정 파일을 읽지 못했습니다: {os.path.abspath(path)} . "
+            f"config.example.json 을 config.json 으로 복사한 뒤 out_dir 을 적으세요. "
+            f"샘플로 돌려 보려면 out_dir 에 ./샘플데이터 라고 적으면 됩니다.")
     return cfg
-
-
-def work_path(cfg: dict, *parts: str) -> str:
-    p = os.path.join(cfg["work_dir"], *parts)
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    return p
 
 
 # =====================================================================
@@ -667,6 +668,32 @@ KOR = {
 
 #: 판별 표적 세 가지. (이름, 라벨 열, 양성 절단점)
 TARGETS = [("중증도", "HAMD_v4", 14), ("자살사고", "SUI_v4", 1), ("불안", "BAI_v4", 16)]
+
+
+def find_cohort_dir(data_dir: str, prefix: str) -> str:
+    """`정형_` 처럼 앞글자만 주면 실제 폴더를 찾아 줍니다.
+
+    폴더 이름에 인원수가 붙어 있어(정형_146명) 대상자가 늘면 이름이 바뀝니다.
+    그때마다 코드를 고치지 않아도 되도록 앞글자로 찾습니다.
+    여러 개가 있으면 가장 최근에 만들어진 것을 쓰고, 어느 것을 골랐는지 알려 줍니다.
+    """
+    if not os.path.isdir(data_dir):
+        raise FileNotFoundError(
+            f"자료 폴더가 없습니다: {data_dir}. config.json 의 out_dir 을 "
+            f"확인하세요. 샘플로 돌려 보려면 ./샘플데이터 라고 적으면 됩니다.")
+    cands = sorted((d for d in os.listdir(data_dir)
+                    if d.startswith(prefix)
+                    and os.path.isdir(os.path.join(data_dir, d))),
+                   key=lambda d: os.path.getmtime(os.path.join(data_dir, d)),
+                   reverse=True)
+    if not cands:
+        raise FileNotFoundError(
+            f"{prefix} 로 시작하는 폴더가 {data_dir} 안에 없습니다. "
+            f"그 안에 있는 것: {os.listdir(data_dir)}")
+    if len(cands) > 1:
+        print(f"    [알림] {prefix} 폴더가 {len(cands)}개입니다 {cands}. "
+              f"가장 최근 것인 {cands[0]} 을 씁니다.")
+    return os.path.join(data_dir, cands[0])
 
 
 def load_cohort(data_dir: str):

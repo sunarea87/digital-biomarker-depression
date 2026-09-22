@@ -91,7 +91,7 @@ def bare(ax, axis="y"):
 # =====================================================================
 def figures_structured():
     print("  정형 그림")
-    wide, lab = bm.load_cohort(os.path.join(DATA, "정형_146명"))
+    wide, lab = bm.load_cohort(bm.find_cohort_dir(DATA, "정형_"))
     rows = bm.to_visit_rows(wide, ("v1", "v4"))
 
     for tgt, col, th in bm.TARGETS:
