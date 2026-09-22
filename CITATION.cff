@@ -1,0 +1,26 @@
+# GitHub 저장소 우측의 "Cite this repository" 버튼에 쓰이는 파일입니다.
+# 저자 이름의 로마자 표기는 확인 후 수정하십시오.
+cff-version: 1.2.0
+message: "이 저장소를 연구에 사용하는 경우 아래와 같이 인용해 주시기 바랍니다."
+title: "Digital biomarker analysis code for major depressive disorder using wrist-worn wearable data"
+abstract: >-
+  Analysis code for deriving digital biomarkers of major depressive disorder from
+  wrist-worn wearable data (sleep, heart rate variability, and physical activity).
+  Includes preprocessing, orthogonal polynomial trajectory representation,
+  cross-validated discrimination, and SHAP-based feature importance.
+type: software
+authors:
+  - family-names: "Kim"
+    given-names: "Byungsoo"
+  - family-names: "Lee"
+    given-names: "Sunhee"
+    email: "sunarea87@gachon.ac.kr"
+repository-code: "https://github.com/sunarea87/digital-biomarker-depression"
+url: "https://github.com/sunarea87/digital-biomarker-depression"
+year: 2026
+keywords:
+  - digital biomarker
+  - major depressive disorder
+  - wearable
+  - heart rate variability
+  - actigraphy

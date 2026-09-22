@@ -15,6 +15,8 @@
 | Pitfalls | 8장 |
 | Configuration and errors | 9장 |
 | Data privacy | 10장 |
+| Citation | 11장 |
+| Acknowledgment | 12장 |
 
 문의는 sunarea87@gachon.ac.kr 로 주시기 바랍니다.
 
@@ -590,6 +592,45 @@ Summary 만 읽으면 16지표 중 2개가 통째로 빔. 실제로 한 번 빠�
 
 ---
 
-## 문의
+## 11. 인용 / Citation
+
+이 저장소의 코드 또는 예시 자료를 연구에 사용하는 경우 아래와 같이 인용하기 바람.
+
+If you use this code or the sample data in your research, please cite it as follows.
+
+```
+Kim, B., & Lee, S. (2026). Digital biomarker analysis code for major depressive
+disorder using wrist-worn wearable data [Computer software].
+https://github.com/sunarea87/digital-biomarker-depression
+```
+
+BibTeX 형식임.
+
+```bibtex
+@software{digital_biomarker_depression_2026,
+  author  = {Kim, Byungsoo and Lee, Sunhee},
+  title   = {Digital biomarker analysis code for major depressive disorder
+             using wrist-worn wearable data},
+  year    = {2026},
+  url     = {https://github.com/sunarea87/digital-biomarker-depression}
+}
+```
+
+관련 논문이 출판되면 이 항목을 해당 논문으로 갱신할 예정임.
+A journal reference will replace this entry once the associated paper is published.
+
+---
+
+## 12. 사사 / Acknowledgment
+
+본 연구는 2024년도 식품의약품안전처의 연구개발비(24202MFDS201)로 수행되었으며,
+이에 감사드립니다.
+
+This study was supported by a grant (24202MFDS201) from the Ministry of Food and
+Drug Safety in 2024.
+
+---
+
+## 문의 / Contact
 
 sunarea87@gachon.ac.kr
