@@ -594,30 +594,28 @@ Summary 만 읽으면 16지표 중 2개가 통째로 빔. 실제로 한 번 빠�
 
 ## 11. 인용 / Citation
 
-이 저장소의 코드 또는 예시 자료를 연구에 사용하는 경우 아래와 같이 인용하기 바람.
+이 저장소의 코드 또는 예시 자료를 연구에 사용하는 경우 아래 논문을 인용하기 바람.
+아래는 준비 중인 논문의 잠정 정보이며, 출판 시 서지사항을 갱신할 예정임.
 
-If you use this code or the sample data in your research, please cite it as follows.
+If you use this code or the sample data in your research, please cite the paper below.
+The entry is provisional and will be updated with the final bibliographic details upon publication.
 
 ```
-Kim, B., & Lee, S. (2026). Digital biomarker analysis code for major depressive
-disorder using wrist-worn wearable data [Computer software].
-https://github.com/sunarea87/digital-biomarker-depression
+Lee, S. H. (in preparation). Digital biomarkers of major depressive disorder
+derived from wrist-worn wearable data: a six-week trajectory analysis.
 ```
 
 BibTeX 형식임.
 
 ```bibtex
-@software{digital_biomarker_depression_2026,
-  author  = {Kim, Byungsoo and Lee, Sunhee},
-  title   = {Digital biomarker analysis code for major depressive disorder
-             using wrist-worn wearable data},
-  year    = {2026},
-  url     = {https://github.com/sunarea87/digital-biomarker-depression}
+@unpublished{lee_digital_biomarker_mdd,
+  author = {Lee, Sun Hee},
+  title  = {Digital biomarkers of major depressive disorder derived from
+            wrist-worn wearable data: a six-week trajectory analysis},
+  note   = {Manuscript in preparation},
+  url    = {https://github.com/sunarea87/digital-biomarker-depression}
 }
 ```
-
-관련 논문이 출판되면 이 항목을 해당 논문으로 갱신할 예정임.
-A journal reference will replace this entry once the associated paper is published.
 
 ---
 
