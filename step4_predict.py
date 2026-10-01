@@ -110,13 +110,14 @@ def 예측(folder):
     # ---- 4단계 중증도 : 세 절단점을 통과한 수가 곧 단계 ----
     paths = [os.path.join(MODEL_DIR, f"중증도단계_{c}.joblib") for c in bm.BAND_CUTS]
     if all(os.path.isfile(q) for q in paths):
-        step = np.zeros(len(wide), int)
+        mat = []
         for c, q in zip(bm.BAND_CUTS, paths):
             pack = joblib.load(q)
             Xb = bm.representation(wide, pack["표현방식"]).reindex(columns=pack["열"])
             pr = pack["모형"].predict_proba(Xb.values)[:, 1]
             out[f"P(HAMD>={c})"] = np.round(pr, 4)
-            step += (pr >= 0.5).astype(int)
+            mat.append(pr)
+        step = bm.monotone_steps(np.column_stack(mat))
         names = [b[2] for b in bm.HAMD_BANDS]
         out["중증도_4단계"] = [names[i] for i in step]
     else:

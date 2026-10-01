@@ -35,6 +35,7 @@ step1_preprocess.py / step2_analyze.py / step3_figures.py 가 여기서 함수�
     cross_val_predict_patient   교차검증 out-of-fold 예측 확률
     ordinal_severity_oof        4단계 중증도(정상·경도·중등도·중증) 예측
     severity_band               HAMD 총점 -> 4단계 이름
+    monotone_steps              절단점 확률 -> 뒤집히지 않는 4단계
     band_metrics                4단계 예측의 정확도·인접정확도·가중카파
     fold_aucs               겹마다의 AUC
     compare_representations 표현 방식끼리 같은 조건으로 비교
@@ -752,6 +753,18 @@ def band_index(score) -> int:
     return sum(1 for c in BAND_CUTS if score >= c)
 
 
+def monotone_steps(probs) -> np.ndarray:
+    """누적 확률을 단조로 맞춘 뒤 단계를 센다.
+
+    절단점마다 따로 학습하므로 "8점 이상일 확률"이 "19점 이상일 확률"보다
+    작아지는 일이 생긴다. 그대로 세면 단계가 뒤집힌다.
+    왼쪽부터 누적 최솟값을 취해 순서를 바로잡은 뒤 0.5 를 넘는 수를 센다.
+    """
+    probs = np.asarray(probs, float)
+    mono = np.minimum.accumulate(probs, axis=1)
+    return (mono >= 0.5).sum(axis=1)
+
+
 def ordinal_severity_oof(X, y_score, model="RF", n_repeats=10, seed=SEED):
     """4단계 중증도를 순서형으로 예측한다.
 
@@ -771,7 +784,7 @@ def ordinal_severity_oof(X, y_score, model="RF", n_repeats=10, seed=SEED):
         y = (y_score >= cut).astype(int)
         _, p = oof_predict(X, y, model, "record", n_repeats=n_repeats, seed=seed)
         probs[:, k] = p
-    pred = (probs >= 0.5).sum(axis=1)
+    pred = monotone_steps(probs)
     true = np.array([band_index(v) for v in y_score])
     return probs, pred, true
 
