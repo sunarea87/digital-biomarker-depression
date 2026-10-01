@@ -5,17 +5,24 @@
 새로 들어온 대상자에게 실제로 써 보려면 이 단계가 필요합니다.
 
     python step4_predict.py 학습
-        코호트 전체로 표현형 세 개의 모형을 학습해 모형/ 폴더에 저장합니다.
-        저장물에는 학습에 쓴 열 목록과 표현 방식이 함께 들어갑니다.
+        코호트 전체로 모형을 학습해 모형/ 폴더에 저장합니다.
+        표현형 세 개(중증도·자살사고·불안)에 더해, 4단계 중증도용 절단점
+        모형 세 개(HAMD 8·14·19점 이상)도 함께 저장합니다.
 
     python step4_predict.py 예측 <visit_wide.csv 가 있는 폴더>
-        저장된 모형으로 그 폴더의 대상자들에게 확률을 매겨
+        저장된 모형으로 그 폴더의 대상자들에게 확률과
+        4단계 중증도(정상·경도·중등도·중증)를 매겨
         <폴더>/예측결과.csv 로 저장합니다.
 
 주의
     학습은 가진 자료를 전부 써서 한 번 적합시키는 것입니다. 여기서 나온 정확도는
     학습 자료에 대한 값이므로 성능 근거로 쓰면 안 됩니다.
     보고할 성능은 2단계의 교차검증 결과(결과/full_metrics.csv)입니다.
+
+    4단계 중증도는 임상 판단을 대신하는 값이 아닙니다.
+    교차검증에서 4단계를 정확히 맞힌 비율은 57.4%이고, 한 단계 이내로 맞힌
+    비율이 84.4%입니다(가중카파 0.652). 특히 중등도(14~18점) 구간이 약합니다.
+    임상의의 평가를 보조하는 참고 지표로만 쓰십시오.
 """
 import os
 import sys
@@ -56,6 +63,21 @@ def 학습():
                      "양성": int(y.sum())}, path)
         print(f"  {name:6s} {algo}/{rep}  학습 {len(y)}명(양성 {y.sum()})  -> {path}")
 
+    # 4단계 중증도용 절단점 모형. "이 점수 이상인가"를 세 번 묻고
+    # 통과한 질문 수를 그대로 단계로 씁니다. 단계가 뒤집히지 않습니다.
+    idx = lab.index[lab["HAMD_v4"].notna()]
+    X = bm.representation(wide, "traj").loc[idx]
+    for cut in bm.BAND_CUTS:
+        y = (lab.loc[idx, "HAMD_v4"] >= cut).astype(int).values
+        model = bm.make_models()["RF"]
+        model.fit(X.values, y)
+        path = os.path.join(MODEL_DIR, f"중증도단계_{cut}.joblib")
+        joblib.dump({"모형": model, "표현방식": "traj", "분류기": "RF",
+                     "열": list(X.columns), "표현형": f"HAMD {cut}점 이상",
+                     "기준": f"HAMD_v4 >= {cut}", "학습표본": int(len(y)),
+                     "양성": int(y.sum())}, path)
+        print(f"  단계절단  HAMD>={cut:2d}  학습 {len(y)}명(양성 {y.sum()})  -> {path}")
+
     print()
     print("저장했습니다. 여기 적힌 정확도가 아니라 결과/full_metrics.csv 를 성능으로 쓰세요.")
 
@@ -85,12 +107,28 @@ def 예측(folder):
         out[f"{name}_확률"] = np.round(p, 4)
         out[f"{name}_판정"] = np.where(p >= 0.5, "양성", "음성")
 
+    # ---- 4단계 중증도 : 세 절단점을 통과한 수가 곧 단계 ----
+    paths = [os.path.join(MODEL_DIR, f"중증도단계_{c}.joblib") for c in bm.BAND_CUTS]
+    if all(os.path.isfile(q) for q in paths):
+        step = np.zeros(len(wide), int)
+        for c, q in zip(bm.BAND_CUTS, paths):
+            pack = joblib.load(q)
+            Xb = bm.representation(wide, pack["표현방식"]).reindex(columns=pack["열"])
+            pr = pack["모형"].predict_proba(Xb.values)[:, 1]
+            out[f"P(HAMD>={c})"] = np.round(pr, 4)
+            step += (pr >= 0.5).astype(int)
+        names = [b[2] for b in bm.HAMD_BANDS]
+        out["중증도_4단계"] = [names[i] for i in step]
+    else:
+        print("  4단계 모형이 없습니다. 먼저 '학습' 을 돌리세요.")
+
     dst = os.path.join(folder, "예측결과.csv")
     out.to_csv(dst, encoding="utf-8-sig")
     print()
     print(out.head(10).to_string())
     print(f"\n{len(out)}명의 예측을 저장했습니다: {dst}")
     print("판정 임계값은 0.5 입니다. 선별 목적이면 낮추는 편이 낫습니다.")
+    print("중증도_4단계 는 임상의의 평가를 보조하는 참고값입니다. 단독 판단 근거로 쓰지 마십시오.")
 
 
 if __name__ == "__main__":

@@ -33,6 +33,9 @@ step1_preprocess.py / step2_analyze.py / step3_figures.py 가 여기서 함수�
 [4] 모형과 교차검증
     make_models             LR / RF / XGB / SVM 파이프라인 (대치·스케일 포함)
     cross_val_predict_patient   교차검증 out-of-fold 예측 확률
+    ordinal_severity_oof        4단계 중증도(정상·경도·중등도·중증) 예측
+    severity_band               HAMD 총점 -> 4단계 이름
+    band_metrics                4단계 예측의 정확도·인접정확도·가중카파
     fold_aucs               겹마다의 AUC
     compare_representations 표현 방식끼리 같은 조건으로 비교
     record_vs_subject       방문 단위와 대상자 단위 분할의 성능 차이 측정
@@ -724,6 +727,72 @@ def to_visit_rows(wide: pd.DataFrame, visits=("v1", "v4")) -> pd.DataFrame:
         s["visit"] = v
         out.append(s)
     return pd.concat(out, ignore_index=True)
+
+
+#: 해밀턴 우울척도(HAMD-17) 4단계 중증도 구간. (하한, 상한, 이름)
+#: 임상에서 통용되는 구간이며, TARGETS 의 중증도 절단점 14 가 중등도 시작점과 같다.
+HAMD_BANDS = [(0, 7, "정상"), (8, 13, "경도"), (14, 18, "중등도"), (19, 99, "중증")]
+
+#: 누적 절단점. 각 절단점마다 "이 점수 이상인가"를 묻는 이분류기를 하나씩 둔다.
+BAND_CUTS = [8, 14, 19]
+
+
+def severity_band(score) -> str:
+    """HAMD 총점을 4단계 이름으로 바꾼다."""
+    if score is None or (isinstance(score, float) and np.isnan(score)):
+        return ""
+    for lo, hi, name in HAMD_BANDS:
+        if lo <= score <= hi:
+            return name
+    return HAMD_BANDS[-1][2]
+
+
+def band_index(score) -> int:
+    """4단계를 0(정상)~3(중증) 숫자로 바꾼다."""
+    return sum(1 for c in BAND_CUTS if score >= c)
+
+
+def ordinal_severity_oof(X, y_score, model="RF", n_repeats=10, seed=SEED):
+    """4단계 중증도를 순서형으로 예측한다.
+
+    4개 중 하나를 바로 고르게 하면 가운데 두 단계가 서로 묻혀 잘 맞지 않는다.
+    그래서 "8점 이상인가", "14점 이상인가", "19점 이상인가" 세 질문을 각각
+    이분류기에 맡기고, 통과한 질문의 수를 그대로 단계로 쓴다.
+    이렇게 하면 단계가 뒤집히는 일이 없고, 각 질문마다 양성이 충분히 모인다.
+
+    돌려주는 값
+        probs  (n, 3) 각 절단점을 넘을 확률
+        pred   (n,)   0~3 예측 단계
+        true   (n,)   0~3 실제 단계
+    """
+    y_score = np.asarray(y_score, float)
+    probs = np.zeros((len(y_score), len(BAND_CUTS)))
+    for k, cut in enumerate(BAND_CUTS):
+        y = (y_score >= cut).astype(int)
+        _, p = oof_predict(X, y, model, "record", n_repeats=n_repeats, seed=seed)
+        probs[:, k] = p
+    pred = (probs >= 0.5).sum(axis=1)
+    true = np.array([band_index(v) for v in y_score])
+    return probs, pred, true
+
+
+def band_metrics(true, pred) -> dict:
+    """4단계 예측을 읽는 지표. 정확히 맞춘 비율만으로는 부족하다."""
+    true, pred = np.asarray(true, int), np.asarray(pred, int)
+    n = len(true)
+    exact = 100 * (true == pred).mean()
+    within1 = 100 * (np.abs(true - pred) <= 1).mean()
+    # 2차 가중 카파 : 한 단계 어긋난 것보다 세 단계 어긋난 것을 더 크게 벌한다
+    k = len(HAMD_BANDS)
+    O = np.zeros((k, k))
+    for t, q in zip(true, pred):
+        O[t, q] += 1
+    W = np.array([[(i - j) ** 2 / (k - 1) ** 2 for j in range(k)] for i in range(k)])
+    ht = np.bincount(true, minlength=k) / n
+    hp = np.bincount(pred, minlength=k) / n
+    E = np.outer(ht, hp) * n
+    kappa = 1 - (W * O).sum() / max((W * E).sum(), 1e-9)
+    return {"정확": exact, "인접1단계": within1, "가중카파": kappa, "n": n}
 
 
 def shap_importance(X, y, feature_names, model="RF", seed=SEED, n_repeats=3):
