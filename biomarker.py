@@ -13,6 +13,9 @@ step1_preprocess.py / step2_analyze.py / step3_figures.py 가 여기서 함수�
     VISITS / WEEK_OF        방문 코드(v1~v4)와 주차(0/2/4/6)
     POLY_CONTRAST           직교 다항 대비 가중치 (P0 평균, P1 기울기, P2 2차, P3 3차)
     MIN_DAYS_PER_WINDOW     한 관찰 창에서 며칠 이상 있어야 인정할지 (3일)
+    FEATURE_SETS            다른 스마트워치용 지표 구성 (엄격공통8 / 기기공통12 / 공통13 / 전체16)
+    add_derived             수면 단계 시간으로 수면 효율·침대 체류를 다시 계산
+    feature_set             구성 이름 -> 지표 목록
     load_config             config.json 읽기
 
 [2] 원자료 파싱 : Fitbit 내보내기 폴더 -> 하루 단위 표
@@ -116,6 +119,48 @@ MIN_DAYS_PER_WINDOW = 3
 SEED = 42
 N_SPLITS = 5
 N_REPEATS = 5
+
+#: 다른 스마트워치에서 쓸 때의 지표 구성. (지표 목록, 쓸 수 있는 기기)
+#: 수면 효율과 침대 체류는 기기마다 정의가 달라, 수면 단계 시간으로 다시 계산한 값
+#: (CALC_*)을 쓴다. add_derived 가 만든다. 엔트로피·LF·HF는 Fitbit 전용이다.
+_STAGE4 = ["SQ_deep_minutes", "SQ_light_minutes", "SQ_rem_minutes", "SQ_wake_minutes"]
+_DIST_CAL = ["ACT_distances_weekday", "ACT_distances_weekend",
+             "ACT_calories_weekday", "ACT_calories_weekend"]
+_COMMON = _STAGE4 + ["CALC_efficiency", "CALC_time_in_bed", "HRV_nremhr",
+                     "ACT_total_active_minutes"]
+FEATURE_SETS = {
+    "엄격공통8": (_STAGE4 + _DIST_CAL, "Fitbit, Apple, Galaxy, Garmin"),
+    "기기공통12": (_COMMON + _DIST_CAL, "Fitbit, Apple, Galaxy, Garmin"),
+    "공통13": (_COMMON + ["HRV_rmssd"] + _DIST_CAL, "Fitbit, Garmin"),
+    "전체16": (F16, "Fitbit"),
+}
+
+
+def add_derived(wide: pd.DataFrame) -> pd.DataFrame:
+    """수면 단계 시간으로 기기 공통 수면 지표를 만들어 열로 붙인다.
+
+    CALC_time_in_bed = 깊은 + 얕은 + 렘 + 각성 (분)
+    CALC_efficiency  = 100 x (깊은 + 얕은 + 렘) / CALC_time_in_bed
+    열 이름이 지표__방문 꼴이든 지표 이름 그대로든 모두 처리한다.
+    """
+    out = wide.copy()
+    suffixes = {c[len("SQ_deep_minutes"):] for c in out.columns if c.startswith("SQ_deep_minutes")}
+    for sfx in suffixes:
+        need = [k + sfx for k in _STAGE4]
+        if not all(c in out.columns for c in need):
+            continue
+        asleep = out[need[0]] + out[need[1]] + out[need[2]]
+        bed = asleep + out[need[3]]
+        out["CALC_time_in_bed" + sfx] = bed
+        out["CALC_efficiency" + sfx] = 100 * asleep / bed.where(bed > 0)
+    return out
+
+
+def feature_set(name: str) -> list:
+    """FEATURE_SETS 이름 -> 지표 목록."""
+    if name not in FEATURE_SETS:
+        raise KeyError(f"지표 구성 이름이 틀렸습니다: {name}. 가능한 값: {list(FEATURE_SETS)}")
+    return list(FEATURE_SETS[name][0])
 
 
 def load_config(path: str = "config.json") -> dict:
@@ -668,6 +713,7 @@ KOR = {
     "ACT_distances_weekday": "평일 이동 거리", "ACT_distances_weekend": "주말 이동 거리",
     "ACT_calories_weekday": "평일 소모 칼로리", "ACT_calories_weekend": "주말 소모 칼로리",
     "ACT_total_active_minutes": "총 활동 시간",
+    "CALC_efficiency": "수면 효율(계산)", "CALC_time_in_bed": "침대 체류(계산)",
 }
 
 #: 판별 표적 세 가지. (이름, 라벨 열, 양성 절단점)
